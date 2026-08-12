@@ -16,7 +16,14 @@ export function Hero() {
         className="text-4xl leading-[0.9] font-semibold tracking-tight text-balance md:text-7xl"
       >
         <span className="block text-white">Your Desktop.</span>
-        <span className="animate-shiny mt-1 block" style={gradientStyle}>
+        {/* pb-[0.18em] gives the "g" descender room: at leading-[0.9] the line
+            box is shorter than the glyphs, and background-clip:text cannot
+            paint outside it, so the tail was being cut off. The matching
+            negative margin keeps the visual gap to the paragraph unchanged. */}
+        <span
+          className="animate-shiny mt-1 block pb-[0.18em] mb-[-0.18em]"
+          style={gradientStyle}
+        >
           Rearranged
         </span>
       </motion.h1>
