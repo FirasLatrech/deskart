@@ -22,8 +22,11 @@ FIRST LAUNCH (important)
 PERMISSION
   On first use, macOS asks to let DeskArt control Finder. This is required —
   Finder is the only way to read and set Desktop icon positions. Click OK.
-  If you decline, re-enable it in:
+
+  If you decline, macOS will not ask a second time. DeskArt then shows an
+  "Open Privacy Settings" button; use it to enable:
     System Settings > Privacy & Security > Automation > DeskArt > Finder
+  then press "Try Again" in DeskArt.
 
 USING IT
   DeskArt lives in the menu bar (no Dock icon). Click the icon, pick a shape,

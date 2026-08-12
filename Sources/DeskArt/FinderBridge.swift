@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 
@@ -16,9 +17,18 @@ enum FinderError: LocalizedError {
     case scriptFailed(String)
     case malformedResponse(String)
     case arrangementEnabled(String)
+    /// Automation access to Finder is missing. Distinct from `scriptFailed`
+    /// because it is the one error the user can actually fix, and the fix is
+    /// not obvious — see `FinderBridge.openAutomationSettings`.
+    case notAuthorized
 
     var errorDescription: String? {
         switch self {
+        case .notAuthorized:
+            return """
+                DeskArt needs permission to control Finder. Finder is the only \
+                way macOS exposes Desktop icon positions.
+                """
         case .scriptFailed(let msg):
             return "Finder rejected the request: \(msg)"
         case .malformedResponse(let msg):
@@ -61,11 +71,68 @@ enum FinderBridge {
             }
             let result = script.executeAndReturnError(&error)
             if let error {
+                let code = error[NSAppleScript.errorNumber] as? Int ?? 0
                 let msg = error[NSAppleScript.errorMessage] as? String ?? "\(error)"
+                // -1743 is "user has not been asked / has declined"; -600 means
+                // Finder was not reachable, which TCC also reports when access
+                // is withheld. Both are the same problem for the user.
+                if code == Int(errAEEventNotPermitted) || code == Int(procNotFound) {
+                    throw FinderError.notAuthorized
+                }
                 throw FinderError.scriptFailed(msg)
             }
             return result.stringValue ?? ""
         }
+    }
+
+    // MARK: - Authorization
+
+    /// Finder's bundle identifier, as an Apple Event target.
+    private static let finderID = "com.apple.finder"
+
+    /// Asks macOS for Automation access to Finder, showing the system consent
+    /// prompt if the user has not been asked yet.
+    ///
+    /// Called up front so the prompt appears as a deliberate request rather
+    /// than as a red failure string after an action the user already started.
+    /// Blocking — the system dialog is modal — so keep it off the main actor.
+    ///
+    /// Returns `true` if Apple Events may now be sent to Finder.
+    @discardableResult
+    static func requestAuthorization(askIfNeeded: Bool = true) -> Bool {
+        var target = AEAddressDesc()
+        guard finderID.withCString({ cString -> OSErr in
+            AECreateDesc(
+                typeApplicationBundleID,
+                cString,
+                strlen(cString),
+                &target
+            )
+        }) == noErr else { return false }
+        defer { AEDisposeDesc(&target) }
+
+        let status = AEDeterminePermissionToAutomateTarget(
+            &target,
+            typeWildCard,
+            typeWildCard,
+            askIfNeeded
+        )
+        return status == noErr
+    }
+
+    /// Whether access has already been granted, without ever prompting.
+    static var isAuthorized: Bool { requestAuthorization(askIfNeeded: false) }
+
+    /// Opens System Settings → Privacy & Security → Automation.
+    ///
+    /// Once a user has declined, macOS will never prompt again, so this pane is
+    /// the only way back — an error message alone would leave them stuck.
+    @MainActor
+    static func openAutomationSettings() {
+        let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
+        )!
+        NSWorkspace.shared.open(url)
     }
 
     /// Escapes a name for embedding in an AppleScript string literal.

@@ -47,9 +47,24 @@ iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 # Developer ID and notarisation — but it gives the app a stable code identity
 # so macOS keeps its Automation permission across launches instead of
 # re-prompting every time.
-echo "==> Signing (ad-hoc)"
-codesign --force --deep --sign - --options runtime "$APP"
+#
+# The entitlements are NOT optional: --options runtime enables the hardened
+# runtime, which forbids sending Apple Events unless the app carries
+# com.apple.security.automation.apple-events. Without it Finder requests fail
+# with -1743 and macOS never shows the consent prompt at all, so the user has
+# no way to grant access. Ad-hoc signing honours entitlements here because TCC
+# checks the entitlement, not the signing authority.
+echo "==> Signing (ad-hoc, with Apple Events entitlement)"
+codesign --force --deep --sign - --options runtime \
+  --entitlements "Resources/DeskArt.entitlements" "$APP"
 codesign -v "$APP" && echo "    signature valid"
+
+# Fail loudly rather than shipping another DMG that cannot talk to Finder.
+if ! codesign -d --entitlements - "$APP" 2>/dev/null | grep -q "automation.apple-events"; then
+  echo "ERROR: Apple Events entitlement missing from signature — aborting." >&2
+  exit 1
+fi
+echo "    apple-events entitlement present"
 
 echo "==> Building DMG"
 DMGROOT="$STAGE/dmgroot"

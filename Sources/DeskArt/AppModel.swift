@@ -10,6 +10,10 @@ final class AppModel: ObservableObject {
     @Published var status: String = ""
     @Published var isError: Bool = false
     @Published var busy: Bool = false
+    /// Drives the "Open System Settings" recovery button. Set whenever a Finder
+    /// call fails for lack of Automation access, since that is the one failure
+    /// the user can fix and macOS will not re-prompt for.
+    @Published var needsAuthorization: Bool = false
 
     let snapshots = SnapshotStore()
 
@@ -35,6 +39,35 @@ final class AppModel: ObservableObject {
         status = "Surprise: \(shape.label)."
     }
 
+    /// Records a failure, flagging the authorization case so the UI can offer
+    /// the System Settings route instead of a dead-end error string.
+    private func report(_ error: Error) {
+        isError = true
+        status = error.localizedDescription
+        if case FinderError.notAuthorized = error { needsAuthorization = true }
+    }
+
+    /// Triggers the macOS consent prompt for controlling Finder.
+    ///
+    /// Runs on first launch so the user is asked at a natural moment. If they
+    /// have already answered, macOS does not prompt again and this is a no-op
+    /// beyond refreshing `needsAuthorization`.
+    func requestAuthorizationThenRefresh() {
+        Task {
+            let granted = await Self.offMainValue { FinderBridge.requestAuthorization() }
+            needsAuthorization = !granted
+            if granted {
+                refresh()
+            } else {
+                isError = true
+                status = FinderError.notAuthorized.localizedDescription
+            }
+        }
+    }
+
+    @MainActor
+    func openAutomationSettings() { FinderBridge.openAutomationSettings() }
+
     /// Reads the Desktop off the main actor: this runs on every menu open, and
     /// a slow Finder would otherwise freeze the popover as it appears.
     func refresh() {
@@ -43,12 +76,12 @@ final class AppModel: ObservableObject {
             do {
                 items = try await Self.offMain { try FinderBridge.readItems() }
                 isError = false
+                needsAuthorization = false
                 // The header badge already shows the count, so a status line
                 // repeating it is noise. Stay quiet until something happens.
                 status = ""
             } catch {
-                isError = true
-                status = error.localizedDescription
+                report(error)
             }
         }
     }
@@ -99,8 +132,7 @@ final class AppModel: ObservableObject {
                 }
                 await refreshQuiet()
             } catch {
-                isError = true
-                status = error.localizedDescription
+                report(error)
             }
             busy = false
         }
@@ -121,8 +153,7 @@ final class AppModel: ObservableObject {
                     : "Restored \(n - failed) of \(n) icons; \(failed) did not land. Check that Desktop sorting is off."
                 await refreshQuiet()
             } catch {
-                isError = true
-                status = error.localizedDescription
+                report(error)
             }
             busy = false
         }
@@ -133,6 +164,14 @@ final class AppModel: ObservableObject {
         _ work: @escaping @Sendable () throws -> T
     ) async throws -> T {
         try await Task.detached(priority: .userInitiated) { try work() }.value
+    }
+
+    /// Non-throwing variant, for the authorization check. Kept separate so the
+    /// modal consent dialog never blocks the main actor.
+    private static func offMainValue<T: Sendable>(
+        _ work: @escaping @Sendable () -> T
+    ) async -> T {
+        await Task.detached(priority: .userInitiated) { work() }.value
     }
 
     func captureManual() {
@@ -146,8 +185,7 @@ final class AppModel: ObservableObject {
                 isError = false
                 status = "Saved snapshot of \(s.itemCount) icons."
             } catch {
-                isError = true
-                status = error.localizedDescription
+                report(error)
             }
             busy = false
         }

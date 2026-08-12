@@ -28,7 +28,10 @@ struct ContentView: View {
         }
         .padding(14)
         .frame(width: 340)
-        .onAppear { model.refresh() }
+        // Ask for Finder access before reading, so a first-run user gets the
+        // system consent prompt rather than a red "not authorized" error. Once
+        // answered, macOS does not prompt again and this just reads.
+        .onAppear { model.requestAuthorizationThenRefresh() }
         // Destructive and irreversible: a snapshot is the only way back to a
         // previous arrangement, so deleting one asks first.
         .alert(
@@ -398,20 +401,47 @@ struct ContentView: View {
     @ViewBuilder
     private var statusLine: some View {
         if !model.status.isEmpty {
-            Label {
-                Text(model.status)
-            } icon: {
-                // A checkmark only where something was actually verified —
-                // putting one next to a neutral icon count would claim a
-                // confirmation that never happened.
-                Image(systemName: model.isError
-                      ? "exclamationmark.circle.fill"
-                      : (model.status.contains("verified") ? "checkmark.circle" : "info.circle"))
+            VStack(alignment: .leading, spacing: 8) {
+                Label {
+                    Text(model.status)
+                } icon: {
+                    // A checkmark only where something was actually verified —
+                    // putting one next to a neutral icon count would claim a
+                    // confirmation that never happened.
+                    Image(systemName: model.isError
+                          ? "exclamationmark.circle.fill"
+                          : (model.status.contains("verified") ? "checkmark.circle" : "info.circle"))
+                }
+                .font(.caption)
+                .foregroundStyle(model.isError ? .red : .secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)   // errors are worth copying
+
+                // Once permission has been declined macOS never prompts again,
+                // so an error string alone is a dead end — this is the only
+                // route back.
+                if model.needsAuthorization {
+                    HStack(spacing: 8) {
+                        Button {
+                            model.openAutomationSettings()
+                        } label: {
+                            Label("Open Privacy Settings", systemImage: "gearshape")
+                        }
+                        Button {
+                            model.requestAuthorizationThenRefresh()
+                        } label: {
+                            Label("Try Again", systemImage: "arrow.clockwise")
+                        }
+                    }
+                    .font(.caption)
+                    .controlSize(.small)
+
+                    Text("Enable DeskArt → Finder, then come back and press Try Again.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            .font(.caption)
-            .foregroundStyle(model.isError ? .red : .secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .textSelection(.enabled)   // errors are worth copying
         }
     }
 }
