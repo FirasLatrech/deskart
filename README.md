@@ -2,6 +2,11 @@
 
 A native macOS menu bar app that arranges your Desktop icons into shapes.
 
+![DeskArt arranging Desktop icons into shapes](media/deskart-demo.gif)
+
+**[Download](https://github.com/FirasLatrech/deskart/releases/latest/download/DeskArt.dmg)**
+· **[deskart.vercel.app](https://deskart.vercel.app)**
+
 ## Run
 
 ```bash
